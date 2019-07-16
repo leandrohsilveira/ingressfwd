@@ -1,12 +1,109 @@
 #!/bin/bash
 
-ADDRESS=0.0.0.0
-NAMESPACE=kube-system
-PORT=443
+CONFIG_FILE=$HOME/.ingressfwd
 
-echo "Forwarding requests to ${ADDRESS}:${PORT} to Kubernetes Ingress Controller of namespace: ${NAMESPACE}"
+#source $(grep -v '^#' .env | xargs)
 
-nohup sudo kubectl port-forward \
-	deployments/nginx-ingress-controller \
-	 --address=$ADDRESS $PORT -n $NAMESPACE \
-	&>/dev/null &
+ADDRESS="0.0.0.0"
+NAMESPACE="kube-system"
+PORT="443:443"
+
+handle_input() {
+	if [ -z "$1" ]
+		then
+			echo $2
+		else
+			echo $1
+	fi
+}
+
+load_configs() {
+	if [ -f "$CONFIG_FILE" ]
+		then
+			export $(grep -v '^#' $CONFIG_FILE | xargs)
+		else
+			init_configs
+	fi
+}
+
+init_configs() {
+	kubectl get deployment -l app.kubernetes.io/name=nginx-ingress-controller --all-namespaces
+	
+	echo "Enter the namespace of the ingress controller [kube-system]:"
+	read I_NAMESPACE
+	NAMESPACE=$(handle_input $I_NAMESPACE $NAMESPACE)
+
+	echo "Enter the address accept the port forward [0.0.0.0]:"
+	read I_ADDRESS
+	ADDRESS=$(handle_input $I_ADDRESS $ADDRESS)
+
+	echo "Enter the port mapping [443:443]:"
+	read I_PORT
+	PORT=$(handle_input $I_PORT $PORT)
+
+	echo -e "Namespace: ${NAMESPACE}\nAddress: ${ADDRESS}\nPort mapping: ${PORT}\n\nDo you want to save this configuration? (y:yes | n:no, retry | c:cancel)"
+	read DECISION
+	case "$DECISION" in
+		y)
+			save
+			;;
+
+		n)
+			init_configs
+			;;
+
+		*)
+			echo "Cancelled"
+			exit 1
+
+	esac
+}
+
+save() {
+	rm -f $CONFIG_FILE
+	echo -e "ADDRESS=${ADDRESS}\nNAMESPACE=${NAMESPACE}\nPORT=${PORT}" > $CONFIG_FILE
+	echo "Saved configurations in $CONFIG_FILE file"
+}
+
+start() {
+	load_configs
+	nohup kubectl port-forward \
+		deployments/nginx-ingress-controller \
+		--address=$ADDRESS $PORT -n $NAMESPACE \
+		&>/dev/null &
+	echo "Forwarding ${ADDRESS} ${PORT} to Kubernetes Ingress Controller of namespace: ${NAMESPACE}"
+}
+
+stop() {
+	ps -ef|grep "kubectl port-forward"
+	echo "Enter the process id of 'kubectl port-forward' command"
+	read INGRESSFWD_PID
+	exec sudo kill $INGRESSFWD_PID
+}
+
+run() {
+	case "$1" in
+		init)
+			init_configs
+			;;
+
+		start)
+			start
+			;;
+		
+		stop)
+			stop
+			;;
+
+		*)
+			echo "Available commands: init | start | stop"
+			exit 1
+	esac
+}
+
+if [ "$UID" -eq 0 ]
+	then
+		run $1
+	else
+		exec sudo "$0" "$@"
+fi
