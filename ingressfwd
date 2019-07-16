@@ -1,0 +1,12 @@
+#!/bin/bash
+
+ADDRESS=0.0.0.0
+NAMESPACE=kube-system
+PORT=443
+
+echo "Forwarding requests to ${ADDRESS}:${PORT} to Kubernetes Ingress Controller of namespace: ${NAMESPACE}"
+
+nohup sudo kubectl port-forward \
+	deployments/nginx-ingress-controller \
+	 --address=$ADDRESS $PORT -n $NAMESPACE \
+	&>/dev/null &
